@@ -3,219 +3,193 @@ import re
 import warnings
 import time
 import os
+import sys
+import subprocess
+
+try:
+    import tomllib  # Python 3.11+
+    def _load_toml(path):
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+except ModuleNotFoundError:
+    import toml
+    def _load_toml(path):
+        return toml.load(path)
+
 from tqdm import TqdmExperimentalWarning
 from tqdm.rich import tqdm
 from DrissionPage import Chromium, ChromiumOptions
-from lib.lib import Main, CloudflareBypasser
-
+from lib.lib import Main, CloudflareBypasser, AddyClient, fetch_verification_link
 
 warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
 
+CONFIG_PATH = os.environ.get("EXITLAG_CONFIG", "config.toml")
+
+
+def load_config():
+    if not os.path.exists(CONFIG_PATH):
+        print(f"Config file '{CONFIG_PATH}' not found. Copy config.example.toml to config.toml and fill it in.")
+        sys.exit(1)
+    return _load_toml(CONFIG_PATH)
+
+
+def write_integration(cfg, email, password):
+    integ = cfg.get("integration", {})
+    path = integ.get("account_txt_path", "").strip()
+    if path:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        except Exception:
+            pass
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"{email}\n{password}\n")
+        print(f"Wrote account to portable account.txt: {path}")
+    launch = integ.get("launch_exe", "").strip()
+    if launch and os.path.exists(launch):
+        print(f"Launching {launch} ...")
+        try:
+            subprocess.Popen([launch], shell=False)
+        except Exception as e:
+            print(f"Failed to launch exe: {e}")
+
 
 async def main():
-    lib = Main()
-    co = ChromiumOptions()
-    co.incognito().auto_port().mute(True)
+    cfg = load_config()
+    addy_cfg = cfg["addy"]
+    signup_cfg = cfg["signup"]
 
+    lib = Main()
     print("Checking for updates...")
     await lib.checkUpdate()
 
-    while True:
-        browserPath = input(
-            "\033[1m"
-            "\n(RECOMMENDED) Press enter in order to use the default browser path (If you have Chrome installed)"
-            "\033[0m"
-            "\nIf you prefer to use other Chromium browser other than Chrome, please enter its executable path here. (e.g: C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe)"
-            "\nHere are some supported browsers that are tested and able to use:"
-            "\n- Chrome"
-            "\n- Brave"
-            "\nBrowser executable path: "
-        ).replace('"', "").replace("'", "")
-        if browserPath != "":
-            if os.path.exists(browserPath):
-                co.set_browser_path(browserPath)
-                break
-            else:
-                print("Please enter a valid path.")
+    passw = signup_cfg.get("password", "Ex1tLag.Chy7!")
+    result = await lib.checkPassword(passw)
+    if "does not meet the requirements" in (result or ""):
+        print(result)
+        sys.exit(1)
+
+    addy = AddyClient(addy_cfg["api_key"])
+    try:
+        if not addy.verify_token():
+            print("WARNING: addy.io token check did not return 200; continuing anyway.")
+    except Exception as e:
+        print(f"addy.io token check error (continuing): {e}")
+
+    co = ChromiumOptions()
+    co.incognito().auto_port().mute(True)
+    browserPath = signup_cfg.get("browser_path", "").strip().replace('"', "").replace("'", "")
+    if browserPath:
+        if os.path.exists(browserPath):
+            co.set_browser_path(browserPath)
         else:
-            break
-
-    while True:
-        passw = (
-            input(
-                "\033[1m"
-                "\n(RECOMMENDED) Press enter in order to use the default password"
-                "\033[0m"
-                "\nIf you prefer to use your own password, do make sure that your password fulfill the below requirements:\n- Use at least 8 characters\n- Use a lowercase letter\n- Use an uppercase letter\n- Use at least 1 special character (!@#$%...)\n- Use at least 1 number\nPassword: "
-            )
-            or "Qing762.chy"
-        )
-        if passw != "Qing762.chy":
-            result = await lib.checkPassword(passw)
-            print(result)
-            if "does not meet the requirements" not in result:
-                break
+            print(f"browser_path '{browserPath}' does not exist; using default.")
+    proxy = signup_cfg.get("proxy", "").strip()
+    if proxy:
+        if lib.testProxy(proxy)[0] is True:
+            co.set_proxy(proxy)
         else:
-            break
+            print(lib.testProxy(proxy)[1])
 
-    proxyUsage = input(
-        "\nWould you like to use a proxy?\nPlease enter the proxy IP and port in the format of IP:PORT (Example: http://localhost:1080). Press enter to skip.\nProxy: "
-    )
-
+    executionCount = int(signup_cfg.get("count", 1))
     accounts = []
-
-    while True:
-        executionCount = input(
-            "\nNumber of accounts to generate (Default: 1): "
-        )
-        try:
-            executionCount = int(executionCount)
-            break
-        except ValueError:
-            if executionCount == "":
-                executionCount = 1
-                break
-            else:
-                print("Please enter a valid number.")
-    print()
-
-    if proxyUsage != "":
-        if lib.testProxy(proxyUsage)[0] is True:
-            co.set_proxy(proxyUsage)
-        else:
-            print(lib.testProxy(proxyUsage)[1])
 
     for x in range(executionCount):
         bar = tqdm(total=100)
-        bar.set_description(f"Initial setup completed [{x + 1}/{executionCount}]")
-        bar.update(20)
-        chrome = Chromium(addr_or_opts=co)
-        page = chrome.get_tab(id_or_num=1)
-        page.set.window.max()
-        page.listen.start("https://mails.org", method="POST")
-        page.get("https://mails.org")
+        bar.set_description(f"Creating addy.io alias [{x + 1}/{executionCount}]")
+        bar.update(10)
 
-        for _ in range(10):
-            result = page.listen.wait()
-            if result.url == "https://mails.org/api/email/generate":
-                email = result.response.body["message"]
-                break
-
-        if not email:
-            print("Failed to generate email. Exiting...")
-            continue
-
-        bar.set_description(f"Account generation process [{x + 1}/{executionCount}]")
+        email = addy.create_alias(
+            domain=addy_cfg["domain"],
+            alias_format=addy_cfg.get("alias_format", "random_characters"),
+            local_part=addy_cfg.get("local_part", ""),
+            description="exitlag-auto-signup",
+        )
+        bar.set_description(f"Alias: {email} [{x + 1}/{executionCount}]")
         bar.update(15)
 
+        chrome = Chromium(addr_or_opts=co)
         tab = chrome.new_tab("https://www.exitlag.com/register")
         try:
             CloudflareBypasser(tab).bypass()
-        except tab.ele("#inputFirstName"):
+        except Exception:
             pass
-
-        bar.set_description(f"Cloudflare captcha bypass [{x + 1}/{executionCount}]")
-        bar.update(5)
+        bar.set_description(f"Cloudflare bypass [{x + 1}/{executionCount}]")
+        bar.update(10)
 
         startTime = time.time()
         while True:
-            endTime = time.time()
-            if endTime - startTime > 10:
-                print("Failed to load registration page. Exiting...")
-                return
-            else:
+            if time.time() - startTime > 20:
+                print("Failed to load registration page (overlay never cleared). Continuing anyway...")
+                break
+            try:
                 if tab.ele("#:fullpage-overlay").style("display") == "none":
                     break
+            except Exception:
+                break
 
-        tab.ele("#inputFirstName").input("qing")
-        tab.ele("#inputLastName").input("chy")
+        tab.ele("#inputFirstName").input(signup_cfg.get("first_name", "Ariel"))
+        tab.ele("#inputLastName").input(signup_cfg.get("last_name", "Segovia"))
         tab.ele("#inputEmail").input(email)
         tab.ele("#inputNewPassword1").input(passw)
         tab.ele("#inputNewPassword2").input(passw)
-        page.listen.start("https://mails.org", method="POST")
-
-        tab.ele(".custom-checkbox--input checkbox").click()
-
         try:
-            tab.ele(
-                ".btn btn-primary btn-block  btn-recaptcha btn-recaptcha-invisible"
-            ).remove_attr("disabled")
+            tab.ele(".custom-checkbox--input checkbox").click()
         except Exception:
             pass
-        tab.ele(
-            ".btn btn-primary btn-block  btn-recaptcha btn-recaptcha-invisible"
-        ).click()
+        try:
+            tab.ele(".btn btn-primary btn-block btn-recaptcha btn-recaptcha-invisible").remove_attr("disabled")
+        except Exception:
+            pass
+        tab.ele(".btn btn-primary btn-block btn-recaptcha btn-recaptcha-invisible").click()
 
-        bar.set_description(f"Signup process [{x + 1}/{executionCount}]")
+        bar.set_description(f"Signing up [{x + 1}/{executionCount}]")
         bar.update(30)
 
-        if tab.wait.url_change("https://www.exitlag.com/clientarea.php", timeout=60):
-            if tab.ele(".alert--title", timeout=60):
-                link = None
-                for _ in range(10):
-                    result = page.listen.wait()
-                    content = result.response.body["emails"]
-                    if not content:
-                        continue
-                    for _, y in content.items():
-                        if (
-                            y["subject"]
-                            == "[ExitLag] Please confirm your e-mail address"
-                        ):
-                            links = re.findall(
-                                r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+",
-                                y["body"],
-                            )
-                            for link in links:
-                                if link.startswith(
-                                    "https://www.exitlag.com/user/verify"
-                                ):
-                                    link = re.sub(r"</?[^>]+>", "", link)
-                                    break
-                        if link:
-                            break
-                    if link:
-                        break
-                if link:
-                    bar.set_description(
-                        f"Verifying email address [{x + 1}/{executionCount}]"
-                    )
-                    bar.update(20)
-                    tab.get(link)
+        registered = tab.wait.url_change("https://www.exitlag.com/clientarea.php", timeout=60)
+        if not registered:
+            print("Registration did not reach clientarea.php. The account may still have been created; check manually.")
 
-                    bar.set_description("Clearing cache and data")
-                    bar.update(9)
-                    tab.set.cookies.clear()
-                    tab.clear_cache()
-                    chrome.set.cookies.clear()
-                    chrome.clear_cache()
-                    chrome.quit()
-
-                    accounts.append({"email": email, "password": passw})
-
-                    bar.set_description(f"Done [{x + 1}/{executionCount}]")
-                    bar.update(1)
-                    bar.close()
-                    print()
-                else:
-                    print(
-                        "Failed to find verification email. You may need to verify it manually. Skipping and continuing...\n"
-                    )
+        if signup_cfg.get("verify_email", False):
+            bar.set_description(f"Verifying email [{x + 1}/{executionCount}]")
+            imap_cfg = cfg.get("imap", {})
+            link = fetch_verification_link(imap_cfg, email, timeout=int(imap_cfg.get("timeout", 120)))
+            if link:
+                tab.get(link)
+                print("Email verified.")
+            else:
+                print("Could not find verification email; you may need to verify manually.")
         else:
-            print("Failed to register. Exiting...")
+            print("Skipping email verification (signup.verify_email = false).")
 
-    with open("accounts.txt", "a") as f:
+        bar.update(25)
+        try:
+            tab.set.cookies.clear()
+            chrome.set.cookies.clear()
+            chrome.clear_cache()
+            chrome.quit()
+        except Exception:
+            pass
+
+        accounts.append({"email": email, "password": passw})
+        bar.set_description(f"Done [{x + 1}/{executionCount}]")
+        bar.update(10)
+        bar.close()
+        print()
+
+    with open("accounts.txt", "a", encoding="utf-8") as f:
         for account in accounts:
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            f.write(
-                f"Email: {account['email']}, Password: {account['password']}, (Created at {timestamp})\n"
-            )
+            f.write(f"Email: {account['email']}, Password: {account['password']}, (Created at {timestamp})\n")
 
-    print("\033[1m" "Credentials:")
+    if accounts:
+        last = accounts[-1]
+        write_integration(cfg, last["email"], last["password"])
 
+    print("\nCredentials:")
     for account in accounts:
         print(f"Email: {account['email']}, Password: {account['password']}")
-    print("\033[0m" "\nCredentials saved to accounts.txt\nHave fun using ExitLag!")
+    print("\nCredentials saved to accounts.txt. Have fun using ExitLag!")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
