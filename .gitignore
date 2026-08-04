@@ -1,12 +1,20 @@
-
-__pycache__/
-.git/
+# Secrets / generated
+config.toml
 accounts.txt
-/.vscode
-/.vs
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Build
 build/
 dist/
-*.exe
-assignVer.py
 *.spec
-version.py
+
+# OS
+.DS_Store
+Thumbs.db

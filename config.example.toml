@@ -1,0 +1,45 @@
+# ==== ExitLag auto-signup (addy.io edition) config ====
+# Copy this file to config.toml and fill in your values.
+
+[addy]
+# Your addy.io API key (Settings -> API in addy.io). Keep it secret.
+api_key = "YOUR_ADDY_API_KEY"
+# Alias domain: a shared domain (e.g. "anonaddy.me") or your own custom domain on addy.io.
+domain = "anonaddy.me"
+# Alias format: random_characters | uuid | random_words | custom
+alias_format = "random_characters"
+# Only used when alias_format = "custom"
+local_part = ""
+
+[signup]
+# Strong password reused for every generated account (meets ExitLag rules:
+# >=8 chars, lower, upper, number, special).
+password = "Ex1tLag.Chy7!"
+first_name = "Ariel"
+last_name = "Segovia"
+# How many accounts to generate in one run.
+count = 1
+# The user's assumption: ExitLag trial does NOT need email verification.
+# If login later complains about unverified email, set this true and fill [imap].
+verify_email = false
+# Empty = use default Chrome. Otherwise full path to a Chromium-based browser exe.
+browser_path = ""
+# Optional proxy, e.g. "http://localhost:1080". Empty = no proxy.
+proxy = ""
+
+[integration]
+# If set, the newest generated account is written here in the format our cracked
+# ExitLag portable reads (email on line 1, password on line 2).
+account_txt_path = "D:\\pc\\accs\\downloads\\exitlag\\account.txt"
+# Optional: full path to EXPortable_Option2.exe to launch right after signup. Empty = don't launch.
+launch_exe = ""
+
+[imap]
+# Only used when signup.verify_email = true.
+host = "imap.gmail.com"
+port = 993
+user = "you@gmail.com"
+# Gmail app password (not your normal password).
+password = "APP_PASSWORD_HERE"
+# How long to wait for the verification email (seconds).
+timeout = 120
