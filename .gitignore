@@ -1,6 +1,9 @@
-# Secrets / generated
+# Secrets / local state
 config.toml
+accounts.db
 accounts.txt
+*.log
+hwid.txt
 
 # Python
 __pycache__/
