@@ -8,6 +8,7 @@ import sys
 from . import portable
 from .addy import AddyClient, AddyError
 from .config import ConfigError, load_config
+from .errors import BrowserNotFound
 from .signup import SignupError, SignupFlow
 from .store import AccountStore
 
@@ -49,6 +50,15 @@ def cmd_check(cfg, store, addy, args) -> int:
     except AddyError as exc:
         print(f"addy.io token FAILED: {exc}")
         return 1
+    # Imported lazily so a broken DrissionPage install cannot break 'check'.
+    from .browser import find_browser
+
+    browser_path = find_browser(cfg.browser.path)
+    if browser_path:
+        print(f"Browser: {browser_path}")
+    else:
+        print("Browser: NOT FOUND -> install Chrome or set [browser].path in config.toml")
+
     accounts = store.list_all()
     active = [a for a in accounts if a.status == "active"]
     print(f"Alias domain: {cfg.addy.domain} (format: {cfg.addy.alias_format})")
@@ -152,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("check", help="Validate config and addy.io token").set_defaults(func=cmd_check)
+    sub.add_parser("check", help="Validate config, addy.io token and browser").set_defaults(func=cmd_check)
 
     signup = sub.add_parser("signup", help="Create new account(s)")
     signup.add_argument("-n", "--count", type=int, default=None)
@@ -195,6 +205,10 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         LOG.warning("Interrupted by user.")
         return 130
+    except BrowserNotFound as exc:
+        LOG.error("No usable browser found.")
+        print(f"\n{exc}", file=sys.stderr)
+        return 3
     except AddyError as exc:
         LOG.error("addy.io error: %s", exc)
         return 1

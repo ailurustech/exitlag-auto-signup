@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from .browser import bypass_cloudflare, new_chromium
+from .browser import BrowserNotFound, bypass_cloudflare, new_chromium
 from .identity import make_identity
 
 LOG = logging.getLogger(__name__)
@@ -189,6 +189,9 @@ class SignupFlow:
             LOG.info("Signup attempt %s/%s", attempt, attempts)
             try:
                 return self._attempt()
+            except BrowserNotFound:
+                # Retrying cannot conjure a browser onto the disk. Fail loudly now.
+                raise
             except Exception as exc:
                 last_error = exc
                 LOG.error("Attempt %s failed: %s", attempt, exc)
